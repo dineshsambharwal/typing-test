@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Typing Test</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      flex-wrap: wrap;
+    }
+
+    .top-left, .top-right {
+      margin: 10px;
+    }
+
+    .top-left {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .top-right {
+      text-align: right;
+    }
+
+    #live-speed {
+      font-size: 18px;
+    }
+
+    .controls {
+      margin: 20px 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+    }
+
+    .backspace-toggle button {
+      background-color: #eee;
+      border: 1px solid #aaa;
+      border-radius: 6px;
+      padding: 5px 10px;
+      margin-right: 5px;
+    }
+
+    .backspace-toggle button.active {
+      background-color: #007BFF;
+      color: white;
+    }
+
+    .toggle-option {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    #text-to-type {
+      width: 100%;
+      max-width: 600px;
+      display: block;
+      margin: 20px auto 10px;
+      padding: 10px;
+      font-size: 16px;
+      resize: vertical;
+      height: 80px;
+    }
+
+    textarea {
+      width: 100%;
+      max-width: 600px;
+      display: block;
+      margin: 0 auto;
+      height: 100px;
+      font-size: 16px;
+    }
+
+    #results {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 18px;
+    }
+
+    #start-end-button {
+      display: block;
+      margin: 20px auto;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    input[type="text"] {
+      width: 100px;
+      padding: 5px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="top-left">
+      <div id="live-speed"></div>
+      <div class="checkbox-group">
+        <label><input type="checkbox" id="show-raw-wpm" checked> Raw WPM</label>
+        <label><input type="checkbox" id="show-cwpm" checked> CWPM</label>
+      </div>
+    </div>
+    <div class="top-right">
+      <div id="timer-input-wrapper">
+        <label for="user-timer">Set Timer (MM:SS):</label>
+        <input type="text" id="user-timer" placeholder="00:00" value="00:00" />
+      </div>
+      <div id="countdown"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="backspace-toggle">
+      <label>Backspace:</label>
+      <button id="bs-full" class="active" onclick="setBackspaceMode('allow')">Full</button>
+      <button id="bs-oneword" onclick="setBackspaceMode('oneword')">1 Word</button>
+      <button id="bs-none" onclick="setBackspaceMode('deny')">None</button>
+    </div>
+
+    <div class="toggle-option">
+      <input type="checkbox" id="allow-arrows" checked />
+      <label for="allow-arrows">Navigation</label>
+    </div>
+  </div>
+
+  <textarea id="text-to-type">The quick brown fox jumps over the lazy dog.</textarea>
+  <textarea id="typed-text" placeholder="Click start to begin..." disabled></textarea>
+
+  <button id="start-end-button" onclick="toggleTest()">Start Test</button>
+  <div id="results"></div>
+
+  <script>
+    const textToTypeArea = document.getElementById("text-to-type");
+    const typedText = document.getElementById("typed-text");
+    const results = document.getElementById("results");
+    const liveSpeed = document.getElementById("live-speed");
+    const countdownDisplay = document.getElementById("countdown");
+    const userTimerInput = document.getElementById("user-timer");
+    const timerInputWrapper = document.getElementById("timer-input-wrapper");
+    const allowArrowsToggle = document.getElementById("allow-arrows");
+    const showRawWpmCheckbox = document.getElementById("show-raw-wpm");
+    const showCwpmCheckbox = document.getElementById("show-cwpm");
+
+    let backspaceMode = "allow";
+    let startTime, speedInterval;
+    let started = false;
+    let oneWordStartIndex = 0;
+    let timerDuration = 60;
+    let showRawWpm = true;
+    let showCwpm = true;
+    let countdownTimerInterval;
+
+    function setBackspaceMode(mode) {
+      backspaceMode = mode;
+      document.querySelectorAll(".backspace-toggle button").forEach(btn => {
+        btn.classList.remove("active");
+      });
+      if (mode === "allow") document.getElementById("bs-full").classList.add("active");
+      if (mode === "oneword") document.getElementById("bs-oneword").classList.add("active");
+      if (mode === "deny") document.getElementById("bs-none").classList.add("active");
+    }
+
+    function toggleTest() {
+      if (started) {
+        endTest();
+      } else {
+        startTest();
+      }
+    }
+
+    function startTest() {
+      results.innerHTML = '';
+      liveSpeed.innerHTML = '';
+      countdownDisplay.innerHTML = '';
+      timerInputWrapper.style.display = "none";
+      textToTypeArea.disabled = true;
+
+      const timerInput = userTimerInput.value.trim();
+      const timerParts = timerInput.split(":");
+      let minutes = parseInt(timerParts[0], 10);
+      let seconds = parseInt(timerParts[1], 10);
+
+      if (isNaN(minutes) || isNaN(seconds)) {
+        alert("Please enter a valid time in MM:SS format.");
+        timerInputWrapper.style.display = "block";
+        return;
+      }
+
+      if (minutes === 0 && seconds === 0) {
+        timerDuration = 0;
+        countdownDisplay.textContent = 'Typing test started...';
+        typedText.disabled = false;
+        typedText.focus();
+        startTime = new Date();
+        started = true;
+        document.getElementById("start-end-button").textContent = "End Test";
+        speedInterval = setInterval(updateLiveSpeed, 1000);
+      } else {
+        timerDuration = minutes * 60 + seconds;
+        typedText.value = '';
+        typedText.disabled = true;
+        typedText.focus();
+        let countdown = 3;
+        countdownDisplay.textContent = `Starting in ${countdown}...`;
+        const countdownTimer = setInterval(() => {
+          countdown--;
+          if (countdown > 0) {
+            countdownDisplay.textContent = `Starting in ${countdown}...`;
+          } else {
+            clearInterval(countdownTimer);
+            countdownDisplay.textContent = 'Go!';
+            typedText.disabled = false;
+            typedText.focus();
+            startTime = new Date();
+            started = true;
+            document.getElementById("start-end-button").textContent = "End Test";
+            speedInterval = setInterval(updateLiveSpeed, 1000);
+            startCountdownTimer();
+          }
+        }, 1000);
+      }
+    }
+
+    function startCountdownTimer() {
+      let timeRemaining = timerDuration;
+      countdownTimerInterval = setInterval(() => {
+        const minutes = Math.floor(timeRemaining / 60);
+        const seconds = timeRemaining % 60;
+        countdownDisplay.textContent = `Time left: ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+        if (timeRemaining <= 0) {
+          clearInterval(countdownTimerInterval);
+          endTest();
+        }
+        timeRemaining--;
+      }, 1000);
+    }
+
+    function updateLiveSpeed() {
+      const elapsed = (new Date() - startTime) / 1000;
+      const input = typedText.value;
+      const wordCount = input.trim().split(/\s+/).filter(Boolean).length;
+      const rawWpm = (wordCount / elapsed) * 60;
+      const correctWordCount = input.trim().split(/\s+/).filter((word, index) => word === textToTypeArea.value.split(/\s+/)[index]).length;
+      const cwpm = (correctWordCount / elapsed) * 60;
+
+      let displayText = '';
+      if (showRawWpm) displayText += `📝 Raw WPM: ${Math.round(rawWpm)} `;
+      if (showCwpm) displayText += `| ✅ CWPM: ${Math.round(cwpm)}`;
+      liveSpeed.innerHTML = displayText.trim();
+    }
+
+    function calculateErrors(input, reference) {
+      let halfErrors = 0;
+      let fullErrors = 0;
+
+      const minLength = Math.min(input.length, reference.length);
+
+      for (let i = 0; i < minLength; i++) {
+        const typedChar = input[i];
+        const refChar = reference[i];
+
+        if (typedChar === refChar) continue;
+
+        // Check for half errors (case mismatch or punctuation missing)
+        if (typedChar.toLowerCase() === refChar.toLowerCase()) {
+          halfErrors++;
+        } else if (typedChar === refChar) {
+          continue;
+        } else {
+          fullErrors++;
+        }
+      }
+
+      const totalErrors = halfErrors / 2 + fullErrors;
+      const errorPercentage = ((totalErrors / minLength) * 100).toFixed(2);
+
+      return errorPercentage;
+    }
+
+    function endTest() {
+      if (!started) return;
+      clearInterval(speedInterval);
+      clearInterval(countdownTimerInterval);
+      countdownDisplay.innerHTML = '';
+      typedText.disabled = true;
+      timerInputWrapper.style.display = "block";
+      textToTypeArea.disabled = false;
+
+      const endTime = new Date();
+      const timeTaken = (endTime - startTime) / 1000;
+      const input = typedText.value;
+      const wordCount = input.trim().split(/\s+/).filter(Boolean).length;
+      const rawWpm = (wordCount / timeTaken) * 60;
+      const correctWordCount = input.trim().split(/\s+/).filter((word, index) => word === textToTypeArea.value.split(/\s+/)[index]).length;
+      const cwpm = (correctWordCount / timeTaken) * 60;
+
+      let correctChars = 0;
+      for (let i = 0; i < input.length; i++) {
+        if (input[i] === textToTypeArea.value[i]) correctChars++;
+      }
+
+      const accuracy = ((correctChars / input.length) * 100).toFixed(2);
+
+      const errorPercentage = calculateErrors(input, textToTypeArea.value);
+
+      results.innerHTML = `
+        ⏱ Time: ${timeTaken.toFixed(2)}s<br>
+        📝 Raw WPM: ${rawWpm.toFixed(2)}<br>
+        ✅ CWPM: ${cwpm.toFixed(2)}<br>
+        🎯 Accuracy: ${isNaN(accuracy) ? '0.00' : accuracy}%<br>
+        ❌ Error Percentage: ${errorPercentage}%`;
+
+      document.getElementById("start-end-button").textContent = "Start Test";
+      started = false;
+    }
+
+    typedText.addEventListener("input", () => {
+      const value = typedText.value;
+      const cursor = typedText.selectionStart;
+      if (value[cursor - 1] === ' ') oneWordStartIndex = cursor;
+    });
+
+    typedText.addEventListener("keydown", (e) => {
+      const allowArrows = allowArrowsToggle.checked;
+      const cursor = typedText.selectionStart;
+      if (!allowArrows && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+        e.preventDefault();
+      }
+      if (e.key === "Backspace") {
+        if (backspaceMode === "deny") {
+          e.preventDefault();
+        } else if (backspaceMode === "oneword" && cursor <= oneWordStartIndex) {
+          e.preventDefault();
+        }
+      }
+    });
+
+    typedText.addEventListener("mousedown", (e) => {
+      if (!allowArrowsToggle.checked) e.preventDefault();
+    });
+
+    showRawWpmCheckbox.addEventListener("change", () => {
+      showRawWpm = showRawWpmCheckbox.checked;
+    });
+
+    showCwpmCheckbox.addEventListener("change", () => {
+      showCwpm = showCwpmCheckbox.checked;
+    });
+  </script>
+</body>
+</html>
